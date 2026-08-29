@@ -6,7 +6,10 @@ import {
     useState,
 } from "react";
 
-import { useParams } from "next/navigation";
+import {
+    useParams,
+    useRouter,
+} from "next/navigation";
 
 import Link from "next/link";
 
@@ -49,6 +52,7 @@ export default function WeeklyTimesheet() {
     const [error, setError] =
         useState("");
 
+    const router = useRouter();
     /**
      * =====================================================
      * LOAD TIMESHEET
@@ -239,18 +243,15 @@ export default function WeeklyTimesheet() {
 
                         <div>
 
-                            <Link
-                                href="/dashboard"
+                            <button
+                                type="button"
+                                onClick={() => router.back()}
                                 className="mb-5 inline-flex items-center gap-2 text-sm text-gray-500 transition hover:text-[#315dbc]"
                             >
-                                <ArrowLeft
-                                    size={16}
-                                />
+                                <ArrowLeft size={16} />
 
-                                <span>
-                                    Back to Timesheets
-                                </span>
-                            </Link>
+                                <span>Back to Timesheets</span>
+                            </button>
 
                             <h2 className="text-lg font-semibold text-gray-800">
                                 This week&apos;s
@@ -286,8 +287,8 @@ export default function WeeklyTimesheet() {
 
                                     <div
                                         className={`text-sm ${isInvalid
-                                                ? "font-medium text-red-500"
-                                                : "text-gray-500"
+                                            ? "font-medium text-red-500"
+                                            : "text-gray-500"
                                             }`}
                                     >
                                         {totalHours}
