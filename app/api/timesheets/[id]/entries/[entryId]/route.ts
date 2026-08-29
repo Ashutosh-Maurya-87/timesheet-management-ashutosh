@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { timesheets } from "@/lib/mock-db";
-import { UpdateTimesheetEntry } from "@/types/timesheet";
+
+import {
+    UpdateTimesheetEntry,
+} from "@/types/timesheet";
+
+import {
+    MAX_WEEKLY_HOURS,
+    getTotalHours,
+} from "@/lib/timesheet-utils";
 
 type RouteParams = {
     params: Promise<{
@@ -11,44 +19,54 @@ type RouteParams = {
 };
 
 /**
+ * =========================================================
  * PATCH
- * Update an existing timesheet entry
+ * =========================================================
+ *
+ * Update an existing timesheet entry.
+ *
+ * IMPORTANT:
+ *
+ * We allow editing even when the weekly total is already
+ * 40 hours.
+ *
+ * But the NEW weekly total must never exceed 40 hours.
+ *
+ * Formula:
+ *
+ * current weekly total
+ * - old entry hours
+ * + new entry hours
+ * <= 40
  */
 export async function PATCH(
     request: NextRequest,
     { params }: RouteParams
 ) {
     try {
-        const { id, entryId } = await params;
+        const {
+            id,
+            entryId,
+        } = await params;
 
-        const body =
-            (await request.json()) as UpdateTimesheetEntry;
+        /**
+         * =================================================
+         * FIND TIMESHEET
+         * =================================================
+         */
 
-        const timesheet = timesheets.find(
-            (item) => item.id === id
-        );
+        const timesheet =
+            timesheets.find(
+                (item) =>
+                    item.id === id
+            );
 
         if (!timesheet) {
             return NextResponse.json(
                 {
                     success: false,
-                    message: "Timesheet not found",
-                },
-                {
-                    status: 404,
-                }
-            );
-        }
-
-        const entry = timesheet.entries.find(
-            (item) => item.id === entryId
-        );
-
-        if (!entry) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    message: "Entry not found",
+                    message:
+                        "Timesheet not found",
                 },
                 {
                     status: 404,
@@ -57,29 +75,74 @@ export async function PATCH(
         }
 
         /**
-         * Update only the fields that were sent
+         * =================================================
+         * FIND ENTRY
+         * =================================================
          */
-        if (body.projectName !== undefined) {
-            entry.projectName = body.projectName;
+
+        const entry =
+            timesheet.entries.find(
+                (item) =>
+                    item.id === entryId
+            );
+
+        if (!entry) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    message:
+                        "Entry not found",
+                },
+                {
+                    status: 404,
+                }
+            );
         }
 
-        if (body.workType !== undefined) {
-            entry.workType = body.workType;
-        }
+        /**
+         * =================================================
+         * READ REQUEST BODY
+         * =================================================
+         */
 
-        if (body.description !== undefined) {
-            entry.description = body.description;
-        }
+        const body =
+            (await request.json()) as UpdateTimesheetEntry;
 
-        if (body.hours !== undefined) {
-            const hours = Number(body.hours);
+        /**
+         * =================================================
+         * HOURS VALIDATION
+         * =================================================
+         *
+         * Only validate hours when hours were included
+         * in the PATCH request.
+         */
 
-            if (hours <= 0 || hours > 24) {
+        let newHours =
+            Number(entry.hours);
+
+        if (
+            body.hours !==
+            undefined
+        ) {
+            newHours =
+                Number(
+                    body.hours
+                );
+
+            /**
+             * Make sure the value is actually numeric.
+             */
+
+            if (
+                !Number.isFinite(
+                    newHours
+                )
+            ) {
                 return NextResponse.json(
                     {
                         success: false,
                         message:
-                            "Hours must be greater than 0 and less than or equal to 24",
+                            "Hours must be a valid number",
                     },
                     {
                         status: 400,
@@ -87,19 +150,171 @@ export async function PATCH(
                 );
             }
 
-            entry.hours = hours;
+            /**
+             * One entry:
+             *
+             * Minimum = 0.5
+             * Maximum = 24
+             */
+
+            if (
+                newHours <
+                0.5 ||
+                newHours > 24
+            ) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        message:
+                            "Hours must be at least 0.5 and less than or equal to 24",
+                    },
+                    {
+                        status: 400,
+                    }
+                );
+            }
         }
+
+        /**
+         * =================================================
+         * CURRENT WEEKLY TOTAL
+         * =================================================
+         */
+
+        const currentTotal =
+            getTotalHours(
+                timesheet.entries
+            );
+
+        /**
+         * =================================================
+         * REMOVE OLD ENTRY FROM TOTAL
+         * =================================================
+         *
+         * Example:
+         *
+         * Current weekly total = 40
+         * Current entry = 8
+         *
+         * 40 - 8 = 32
+         *
+         * This is the amount of hours that remain
+         * after temporarily removing the entry being edited.
+         */
+
+        const totalWithoutCurrentEntry =
+            currentTotal -
+            Number(
+                entry.hours
+            );
+
+        /**
+         * =================================================
+         * CALCULATE NEW WEEKLY TOTAL
+         * =================================================
+         */
+
+        const newTotal =
+            totalWithoutCurrentEntry +
+            newHours;
+
+        /**
+         * =================================================
+         * CHECK WEEKLY MAXIMUM
+         * =================================================
+         *
+         * This is the most important validation.
+         */
+
+        if (
+            newTotal >
+            MAX_WEEKLY_HOURS
+        ) {
+            const availableHours =
+                Math.max(
+                    MAX_WEEKLY_HOURS -
+                    totalWithoutCurrentEntry,
+                    0
+                );
+
+            return NextResponse.json(
+                {
+                    success: false,
+
+                    message:
+                        `You can only set this entry to ${availableHours} ${availableHours ===
+                            1
+                            ? "hour"
+                            : "hours"
+                        }. The weekly maximum is ${MAX_WEEKLY_HOURS} hours.`,
+                },
+                {
+                    status: 400,
+                }
+            );
+        }
+
+        /**
+         * =================================================
+         * UPDATE FIELDS
+         * =================================================
+         *
+         * We update only fields that were actually
+         * included in the request.
+         */
+
+        if (
+            body.projectName !==
+            undefined
+        ) {
+            entry.projectName =
+                body.projectName;
+        }
+
+        if (
+            body.workType !==
+            undefined
+        ) {
+            entry.workType =
+                body.workType;
+        }
+
+        if (
+            body.description !==
+            undefined
+        ) {
+            entry.description =
+                body.description;
+        }
+
+        if (
+            body.hours !==
+            undefined
+        ) {
+            entry.hours =
+                newHours;
+        }
+
+        /**
+         * =================================================
+         * SUCCESS RESPONSE
+         * =================================================
+         */
 
         return NextResponse.json({
             success: true,
-            message: "Entry updated successfully",
+
+            message:
+                "Entry updated successfully",
+
             data: entry,
         });
     } catch {
         return NextResponse.json(
             {
                 success: false,
-                message: "Failed to update entry",
+                message:
+                    "Failed to update entry",
             },
             {
                 status: 500,
@@ -109,42 +324,78 @@ export async function PATCH(
 }
 
 /**
+ * =========================================================
  * DELETE
- * Delete an existing timesheet entry
+ * =========================================================
+ *
+ * Delete an existing timesheet entry.
+ *
+ * There is no weekly-hour restriction here because
+ * deleting an entry can only decrease the weekly total.
+ *
+ * Example:
+ *
+ * 40 -> delete 8 -> 32
+ *
+ * After deletion, the user can add hours again.
  */
 export async function DELETE(
     _request: NextRequest,
     { params }: RouteParams
 ) {
     try {
-        const { id, entryId } = await params;
+        const {
+            id,
+            entryId,
+        } = await params;
 
-        const timesheet = timesheets.find(
-            (item) => item.id === id
-        );
+        /**
+         * =================================================
+         * FIND TIMESHEET
+         * =================================================
+         */
+
+        const timesheet =
+            timesheets.find(
+                (item) =>
+                    item.id === id
+            );
 
         if (!timesheet) {
             return NextResponse.json(
                 {
                     success: false,
-                    message: "Timesheet not found",
+                    message:
+                        "Timesheet not found",
                 },
                 {
                     status: 404,
                 }
             );
         }
+
+        /**
+         * =================================================
+         * FIND ENTRY
+         * =================================================
+         */
 
         const entryIndex =
             timesheet.entries.findIndex(
-                (item) => item.id === entryId
+                (item) =>
+                    item.id ===
+                    entryId
             );
 
-        if (entryIndex === -1) {
+        if (
+            entryIndex ===
+            -1
+        ) {
             return NextResponse.json(
                 {
                     success: false,
-                    message: "Entry not found",
+                    message:
+                        "Entry not found",
                 },
                 {
                     status: 404,
@@ -152,17 +403,35 @@ export async function DELETE(
             );
         }
 
-        timesheet.entries.splice(entryIndex, 1);
+        /**
+         * =================================================
+         * DELETE ENTRY
+         * =================================================
+         */
+
+        timesheet.entries.splice(
+            entryIndex,
+            1
+        );
+
+        /**
+         * =================================================
+         * SUCCESS RESPONSE
+         * =================================================
+         */
 
         return NextResponse.json({
             success: true,
-            message: "Entry deleted successfully",
+
+            message:
+                "Entry deleted successfully",
         });
     } catch {
         return NextResponse.json(
             {
                 success: false,
-                message: "Failed to delete entry",
+                message:
+                    "Failed to delete entry",
             },
             {
                 status: 500,

@@ -7,6 +7,10 @@ import {
     timesheets,
 } from "@/lib/mock-db";
 
+import {
+    getTimesheetStatus,
+} from "@/lib/timesheet-utils";
+
 export async function GET(
     request: NextRequest
 ) {
@@ -29,20 +33,46 @@ export async function GET(
         const endDate =
             searchParams.get("endDate");
 
-        const page = Math.max(
-            Number(pageParam || 1),
-            1
-        );
+        /**
+         * =====================================================
+         * PAGINATION
+         * =====================================================
+         */
 
-        const pageSize = Math.max(
-            Number(pageSizeParam || 5),
-            1
-        );
+        const parsedPage =
+            Number(pageParam || 1);
 
-        /*
-         * ----------------------------------------
-         * Validate date format
-         * ----------------------------------------
+        const parsedPageSize =
+            Number(pageSizeParam || 5);
+
+        const page =
+            Number.isFinite(
+                parsedPage
+            )
+                ? Math.max(
+                    parsedPage,
+                    1
+                )
+                : 1;
+
+        const pageSize =
+            Number.isFinite(
+                parsedPageSize
+            )
+                ? Math.max(
+                    parsedPageSize,
+                    1
+                )
+                : 5;
+
+        /**
+         * =====================================================
+         * DATE FORMAT VALIDATION
+         * =====================================================
+         *
+         * Expected:
+         *
+         * YYYY-MM-DD
          */
 
         const dateRegex =
@@ -50,7 +80,9 @@ export async function GET(
 
         if (
             startDate &&
-            !dateRegex.test(startDate)
+            !dateRegex.test(
+                startDate
+            )
         ) {
             return NextResponse.json(
                 {
@@ -66,7 +98,9 @@ export async function GET(
 
         if (
             endDate &&
-            !dateRegex.test(endDate)
+            !dateRegex.test(
+                endDate
+            )
         ) {
             return NextResponse.json(
                 {
@@ -80,10 +114,93 @@ export async function GET(
             );
         }
 
-        /*
-         * ----------------------------------------
-         * Validate date range
-         * ----------------------------------------
+        /**
+         * =====================================================
+         * VALIDATE ACTUAL DATE VALUES
+         * =====================================================
+         *
+         * Regex alone would allow values such as:
+         *
+         * 2026-99-99
+         *
+         * So we also validate that the date actually exists.
+         */
+
+        function isValidDateString(
+            value: string
+        ): boolean {
+            const date =
+                new Date(
+                    `${value}T00:00:00`
+                );
+
+            if (
+                Number.isNaN(
+                    date.getTime()
+                )
+            ) {
+                return false;
+            }
+
+            const [
+                year,
+                month,
+                day,
+            ] =
+                value
+                    .split("-")
+                    .map(Number);
+
+            return (
+                date.getFullYear() ===
+                year &&
+                date.getMonth() + 1 ===
+                month &&
+                date.getDate() ===
+                day
+            );
+        }
+
+        if (
+            startDate &&
+            !isValidDateString(
+                startDate
+            )
+        ) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    message:
+                        "Invalid start date.",
+                },
+                {
+                    status: 400,
+                }
+            );
+        }
+
+        if (
+            endDate &&
+            !isValidDateString(
+                endDate
+            )
+        ) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    message:
+                        "Invalid end date.",
+                },
+                {
+                    status: 400,
+                }
+            );
+        }
+
+        /**
+         * =====================================================
+         * VALIDATE DATE RANGE
+         * =====================================================
          */
 
         if (
@@ -98,24 +215,59 @@ export async function GET(
                         "Start date cannot be after end date.",
                 },
                 {
-                    status: 400,
+                    status: 400
                 }
             );
         }
 
-        /*
-         * ----------------------------------------
-         * Start with all timesheets
-         * ----------------------------------------
+        /**
+         * =====================================================
+         * START WITH ALL TIMESHEETS
+         * =====================================================
          */
 
         let filteredTimesheets =
             [...timesheets];
 
-        /*
-         * ----------------------------------------
-         * Status filter
-         * ----------------------------------------
+        /**
+         * =====================================================
+         * CALCULATE STATUS FROM ACTUAL ENTRIES
+         * =====================================================
+         *
+         * We do not blindly trust:
+         *
+         * timesheet.status
+         *
+         * because the entries can change after:
+         *
+         * - Create
+         * - Edit
+         * - Delete
+         *
+         * Instead:
+         *
+         * entries -> calculate status
+         */
+
+        const timesheetsWithCalculatedStatus =
+            filteredTimesheets.map(
+                (timesheet) => ({
+                    ...timesheet,
+
+                    status:
+                        getTimesheetStatus(
+                            timesheet.entries
+                        ),
+                })
+            );
+
+        filteredTimesheets =
+            timesheetsWithCalculatedStatus;
+
+        /**
+         * =====================================================
+         * STATUS FILTER
+         * =====================================================
          */
 
         if (
@@ -130,14 +282,47 @@ export async function GET(
                 );
         }
 
-        /*
-         * ----------------------------------------
-         * Date filtering
+        /**
+         * =====================================================
+         * DATE FILTERING
+         * =====================================================
          *
          * A weekly timesheet matches when
          * its date range overlaps the selected
          * date range.
-         * ----------------------------------------
+         *
+         * Example:
+         *
+         * Timesheet:
+         *
+         * Jan 5 - Jan 9
+         *
+         * Selected:
+         *
+         * Jan 7 - Jan 20
+         *
+         * They overlap, therefore the week
+         * is included.
+         *
+         * -----------------------------------------
+         *
+         * If only startDate is selected:
+         *
+         * week.endDate >= startDate
+         *
+         * -----------------------------------------
+         *
+         * If only endDate is selected:
+         *
+         * week.startDate <= endDate
+         *
+         * -----------------------------------------
+         *
+         * If both are selected:
+         *
+         * week.endDate >= startDate
+         * AND
+         * week.startDate <= endDate
          */
 
         if (startDate) {
@@ -158,26 +343,28 @@ export async function GET(
                 );
         }
 
-        /*
-         * ----------------------------------------
-         * Total AFTER filtering
-         * ----------------------------------------
+        /**
+         * =====================================================
+         * TOTAL AFTER FILTERING
+         * =====================================================
          */
 
         const total =
             filteredTimesheets.length;
 
-        /*
-         * ----------------------------------------
-         * Pagination
-         * ----------------------------------------
+        /**
+         * =====================================================
+         * PAGINATION
+         * =====================================================
          */
 
         const startIndex =
-            (page - 1) * pageSize;
+            (page - 1) *
+            pageSize;
 
         const endIndex =
-            startIndex + pageSize;
+            startIndex +
+            pageSize;
 
         const paginatedData =
             filteredTimesheets.slice(
@@ -185,12 +372,23 @@ export async function GET(
                 endIndex
             );
 
+        /**
+         * =====================================================
+         * RESPONSE
+         * =====================================================
+         */
+
         return NextResponse.json(
             {
                 success: true,
-                data: paginatedData,
+
+                data:
+                    paginatedData,
+
                 total,
+
                 page,
+
                 pageSize,
             },
             {
