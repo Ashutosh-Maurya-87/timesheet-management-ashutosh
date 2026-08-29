@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { LogOut } from "lucide-react";
 
@@ -11,17 +12,22 @@ export default function DashboardHeader() {
     }
 
     return (
-        <header className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4 sm:px-6">
+        <header className="flex min-h-14 items-center justify-between border-b border-gray-200 bg-white px-4 sm:px-6">
+            {/* Left */}
             <div className="flex items-center gap-6 sm:gap-8">
-                <h1 className="text-lg font-semibold tracking-wide text-gray-800">
+                <Link
+                    href="/dashboard"
+                    className="text-lg font-semibold tracking-wide text-gray-800"
+                >
                     ticktock
-                </h1>
+                </Link>
 
                 <span className="text-sm text-gray-600">
                     Timesheets
                 </span>
             </div>
 
+            {/* Right */}
             <div className="flex items-center gap-3">
                 <span className="hidden text-sm text-gray-500 sm:inline">
                     Ashutosh Maurya
