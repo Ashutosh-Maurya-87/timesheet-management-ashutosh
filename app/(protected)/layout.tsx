@@ -1,15 +1,23 @@
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 
+import {
+    DashboardFilterProvider,
+} from "@/components/dashboard/DashboardFilterProvider";
+
 export default function ProtectedLayout({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
     return (
-        <div className="min-h-screen bg-[#f7f8fa]">
-            <DashboardHeader />
+        <DashboardFilterProvider>
+            <div className="min-h-screen bg-[#f7f8fa]">
 
-            {children}
-        </div>
+                <DashboardHeader />
+
+                {children}
+
+            </div>
+        </DashboardFilterProvider>
     );
 }

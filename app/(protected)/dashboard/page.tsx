@@ -20,26 +20,40 @@ import Pagination from "@/components/dashboard/Pagination";
 import Loader from "@/components/common/Loader";
 import EmptyState from "@/components/common/EmptyState";
 
-function getTodayDate(): string {
-    const today = new Date();
-
-    const year =
-        today.getFullYear();
-
-    const month =
-        String(
-            today.getMonth() + 1
-        ).padStart(2, "0");
-
-    const day =
-        String(
-            today.getDate()
-        ).padStart(2, "0");
-
-    return `${year}-${month}-${day}`;
-}
+import {
+    useDashboardFilters,
+} from "@/components/dashboard/DashboardFilterProvider";
 
 export default function DashboardPage() {
+    /**
+     * =====================================================
+     * DASHBOARD FILTER STATE
+     * =====================================================
+     *
+     * This state comes from DashboardFilterProvider.
+     *
+     * Because the provider is inside:
+     *
+     * app/dashboard/layout.tsx
+     *
+     * the filter state remains alive while navigating
+     * between dashboard pages.
+     */
+
+    const {
+        status,
+        startDate,
+        endDate,
+        page,
+        pageSize,
+
+        setStatus,
+        setStartDate,
+        setEndDate,
+        setPage,
+        setPageSize,
+    } = useDashboardFilters();
+
     /**
      * =====================================================
      * API DATA
@@ -49,9 +63,9 @@ export default function DashboardPage() {
     const [
         timesheets,
         setTimesheets,
-    ] = useState<
-        TimesheetWeek[]
-    >([]);
+    ] = useState<TimesheetWeek[]>(
+        []
+    );
 
     const [
         total,
@@ -76,46 +90,6 @@ export default function DashboardPage() {
 
     /**
      * =====================================================
-     * PAGINATION
-     * =====================================================
-     */
-
-    const [
-        page,
-        setPage,
-    ] = useState(1);
-
-    const [
-        pageSize,
-        setPageSize,
-    ] = useState(5);
-
-    /**
-     * =====================================================
-     * FILTERS
-     * =====================================================
-     */
-
-    const [
-        status,
-        setStatus,
-    ] = useState("ALL");
-
-    const today =
-        getTodayDate();
-
-    const [
-        startDate,
-        setStartDate,
-    ] = useState(today);
-
-    const [
-        endDate,
-        setEndDate,
-    ] = useState(today);
-
-    /**
-     * =====================================================
      * LOAD TIMESHEETS
      * =====================================================
      */
@@ -124,9 +98,7 @@ export default function DashboardPage() {
         useCallback(
             async () => {
                 /**
-                 * -----------------------------------------
-                 * Invalid date range protection
-                 * -----------------------------------------
+                 * Prevent invalid date range requests.
                  */
 
                 if (
@@ -142,15 +114,11 @@ export default function DashboardPage() {
                     Date.now();
 
                 try {
-                    setLoading(true);
+                    setLoading(
+                        true
+                    );
 
                     setError("");
-
-                    /**
-                     * -------------------------------------
-                     * API REQUEST
-                     * -------------------------------------
-                     */
 
                     const result =
                         await getTimesheets(
@@ -162,9 +130,8 @@ export default function DashboardPage() {
                         );
 
                     /**
-                     * -------------------------------------
-                     * Keep loader visible for 2 seconds
-                     * -------------------------------------
+                     * Keep loader visible
+                     * for at least 2 seconds.
                      */
 
                     const elapsedTime =
@@ -196,12 +163,6 @@ export default function DashboardPage() {
                         );
                     }
 
-                    /**
-                     * -------------------------------------
-                     * UPDATE DATA
-                     * -------------------------------------
-                     */
-
                     setTimesheets(
                         result.data
                     );
@@ -213,10 +174,9 @@ export default function DashboardPage() {
                 requestError
                 ) {
                     /**
-                     * -------------------------------------
-                     * Keep loader visible for 2 seconds
+                     * Keep loader visible
+                     * for at least 2 seconds
                      * even when API fails.
-                     * -------------------------------------
                      */
 
                     const elapsedTime =
@@ -282,7 +242,7 @@ export default function DashboardPage() {
 
     /**
      * =====================================================
-     * FETCH WHEN FILTER / PAGINATION CHANGES
+     * FETCH DATA
      * =====================================================
      */
 
@@ -305,11 +265,9 @@ export default function DashboardPage() {
             value
         );
 
-        /**
-         * Always return to first page
-         * when changing filters.
-         */
-        setPage(1);
+        setPage(
+            1
+        );
     }
 
     /**
@@ -321,31 +279,12 @@ export default function DashboardPage() {
     function handleStartDateChange(
         value: string
     ) {
-        setStartDate(
-            value
-        );
-
         /**
-         * Filter changes should
-         * always start from page 1.
+         * If the selected start date is after
+         * the existing end date, automatically
+         * move the end date to the same date.
          */
-        setPage(1);
 
-        /**
-         * If selected start date is
-         * after the current end date,
-         * move the end date forward.
-         *
-         * Example:
-         *
-         * Start = Jan 20
-         * End   = Jan 10
-         *
-         * becomes:
-         *
-         * Start = Jan 20
-         * End   = Jan 20
-         */
         if (
             !endDate ||
             value >
@@ -355,6 +294,14 @@ export default function DashboardPage() {
                 value
             );
         }
+
+        setStartDate(
+            value
+        );
+
+        setPage(
+            1
+        );
     }
 
     /**
@@ -367,9 +314,10 @@ export default function DashboardPage() {
         value: string
     ) {
         /**
-         * Do not allow an end date
-         * before the start date.
+         * Prevent an end date before
+         * the start date.
          */
+
         if (
             startDate &&
             value <
@@ -386,7 +334,9 @@ export default function DashboardPage() {
             value
         );
 
-        setPage(1);
+        setPage(
+            1
+        );
     }
 
     /**
@@ -396,8 +346,37 @@ export default function DashboardPage() {
      */
 
     function handleClearFilters() {
+        /**
+         * We intentionally use the provider's
+         * reset behavior by setting today's date.
+         *
+         * The provider itself owns the filter state.
+         */
+
+        const today =
+            new Date();
+
+        const year =
+            today.getFullYear();
+
+        const month =
+            String(
+                today.getMonth() + 1
+            ).padStart(
+                2,
+                "0"
+            );
+
+        const day =
+            String(
+                today.getDate()
+            ).padStart(
+                2,
+                "0"
+            );
+
         const currentDate =
-            getTodayDate();
+            `${year}-${month}-${day}`;
 
         setStatus(
             "ALL"
@@ -411,7 +390,45 @@ export default function DashboardPage() {
             currentDate
         );
 
-        setPage(1);
+        setPage(
+            1
+        );
+
+        setPageSize(
+            5
+        );
+    }
+
+    /**
+     * =====================================================
+     * PAGE SIZE CHANGE
+     * =====================================================
+     */
+
+    function handlePageSizeChange(
+        value: number
+    ) {
+        setPageSize(
+            value
+        );
+
+        setPage(
+            1
+        );
+    }
+
+    /**
+     * =====================================================
+     * PAGE CHANGE
+     * =====================================================
+     */
+
+    function handlePageChange(
+        nextPage: number
+    ) {
+        setPage(
+            nextPage
+        );
     }
 
     /**
@@ -440,7 +457,9 @@ export default function DashboardPage() {
                     ================================================= */}
 
                     <TimesheetFilters
-                        status={status}
+                        status={
+                            status
+                        }
                         startDate={
                             startDate
                         }
@@ -533,10 +552,6 @@ export default function DashboardPage() {
                                     }
                                 />
 
-                                {/* =========================================
-                                    BOTTOM CONTROLS
-                                ========================================= */}
-
                                 <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
                                     {/* PAGE SIZE */}
@@ -547,19 +562,15 @@ export default function DashboardPage() {
                                         }
                                         onChange={(
                                             event
-                                        ) => {
-                                            setPageSize(
+                                        ) =>
+                                            handlePageSizeChange(
                                                 Number(
                                                     event
                                                         .target
                                                         .value
                                                 )
-                                            );
-
-                                            setPage(
-                                                1
-                                            );
-                                        }}
+                                            )
+                                        }
                                         className="h-9 w-fit rounded-md border border-gray-300 bg-white px-3 text-xs text-gray-600 outline-none focus:border-[#315dbc]"
                                     >
                                         <option value={5}>
@@ -588,7 +599,7 @@ export default function DashboardPage() {
                                             pageSize
                                         }
                                         onPageChange={
-                                            setPage
+                                            handlePageChange
                                         }
                                     />
 
@@ -598,9 +609,9 @@ export default function DashboardPage() {
 
                 </div>
 
-                {/* =====================================================
+                {/* =================================================
                     FOOTER
-                ===================================================== */}
+                ================================================= */}
 
                 <footer className="mt-4 rounded-lg border border-gray-200 bg-white py-6 text-center text-xs text-gray-500">
                     © 2026 Ashutosh Maurya. All rights reserved.
