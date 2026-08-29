@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
@@ -11,8 +11,21 @@ export default function LoginForm() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
+    const [rememberMe, setRememberMe] = useState(false);
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        const savedEmail =
+            localStorage.getItem(
+                "rememberedEmail"
+            );
+
+        if (savedEmail) {
+            setEmail(savedEmail);
+            setRememberMe(true);
+        }
+    }, []);
 
     async function handleSubmit(
         event: React.FormEvent<HTMLFormElement>
@@ -26,12 +39,29 @@ export default function LoginForm() {
             const result = await signIn("credentials", {
                 email,
                 password,
+                rememberMe: rememberMe
+                    ? "true"
+                    : "false",
                 redirect: false,
             });
 
             if (result?.error) {
-                setError("Invalid email or password");
+                setError(
+                    "Invalid email or password"
+                );
+
                 return;
+            }
+
+            if (rememberMe) {
+                localStorage.setItem(
+                    "rememberedEmail",
+                    email
+                );
+            } else {
+                localStorage.removeItem(
+                    "rememberedEmail"
+                );
             }
 
             router.push("/dashboard");
@@ -121,9 +151,23 @@ export default function LoginForm() {
                                 </div>
                             </div>
 
-                            <label className="flex items-center gap-2 text-sm text-[#697386]">
-                                <input type="checkbox" />
-                                Remember me
+                            <label
+                                htmlFor="rememberMe"
+                                className="flex w-fit cursor-pointer items-center gap-2 text-sm text-[#697386]"
+                            >
+                                <input
+                                    id="rememberMe"
+                                    type="checkbox"
+                                    checked={rememberMe}
+                                    onChange={(event) =>
+                                        setRememberMe(
+                                            event.target.checked
+                                        )
+                                    }
+                                    className="h-4 w-4 cursor-pointer accent-[#315dbc]"
+                                />
+
+                                <span>Remember me</span>
                             </label>
 
                             {error && (
